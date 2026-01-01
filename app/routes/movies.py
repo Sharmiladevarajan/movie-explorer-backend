@@ -12,35 +12,67 @@ router = APIRouter(prefix="/api/movies", tags=["movies"])
 def get_movies(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    genre: Optional[str] = None
+    genre: Optional[str] = None,
+    director: Optional[str] = None,
+    actor: Optional[str] = None,
+    year: Optional[int] = None
 ):
-    """Get all movies with optional genre filter"""
+    """
+    Get all movies with optional filters
+    
+    Query Parameters:
+    - limit: Maximum number of movies to return
+    - offset: Number of movies to skip (pagination)
+    - genre: Filter by genre name
+    - director: Filter by director name
+    - actor: Filter by actor name
+    - year: Filter by release year
+    """
     try:
-        logger.info(f"Fetching movies: limit={limit}, offset={offset}, genre={genre}")
+        logger.info(f"Fetching movies: limit={limit}, offset={offset}, genre={genre}, director={director}, actor={actor}, year={year}")
         
+        # Build dynamic query with filters
+        base_query = """
+            SELECT DISTINCT m.id, m.title, d.name as director, m.release_year, 
+                   g.name as genre, m.rating, m.description, m.created_at
+            FROM movies m
+            JOIN directors d ON m.director_id = d.id
+            JOIN genres g ON m.genre_id = g.id
+        """
+        
+        conditions = []
+        params = []
+        
+        # Add actor join if filtering by actor
+        if actor:
+            base_query += """
+                JOIN movie_actors ma ON m.id = ma.movie_id
+                JOIN actors a ON ma.actor_id = a.id
+            """
+            conditions.append("a.name ILIKE %s")
+            params.append(actor)
+        
+        # Add filter conditions
         if genre:
-            query = """
-                SELECT m.id, m.title, d.name as director, m.release_year, 
-                       g.name as genre, m.rating, m.description, m.created_at
-                FROM movies m
-                JOIN directors d ON m.director_id = d.id
-                JOIN genres g ON m.genre_id = g.id
-                WHERE g.name ILIKE %s
-                ORDER BY m.created_at DESC
-                LIMIT %s OFFSET %s
-            """
-            movies = db.execute_query(query, (genre, limit, offset))
-        else:
-            query = """
-                SELECT m.id, m.title, d.name as director, m.release_year, 
-                       g.name as genre, m.rating, m.description, m.created_at
-                FROM movies m
-                JOIN directors d ON m.director_id = d.id
-                JOIN genres g ON m.genre_id = g.id
-                ORDER BY m.created_at DESC
-                LIMIT %s OFFSET %s
-            """
-            movies = db.execute_query(query, (limit, offset))
+            conditions.append("g.name ILIKE %s")
+            params.append(genre)
+        
+        if director:
+            conditions.append("d.name ILIKE %s")
+            params.append(director)
+        
+        if year:
+            conditions.append("m.release_year = %s")
+            params.append(year)
+        
+        # Combine query
+        if conditions:
+            base_query += " WHERE " + " AND ".join(conditions)
+        
+        base_query += " ORDER BY m.created_at DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        
+        movies = db.execute_query(base_query, tuple(params))
         
         logger.info(f"Retrieved {len(movies)} movies")
         return {"movies": movies, "count": len(movies)}
@@ -55,12 +87,16 @@ def get_movies(
 
 @router.get("/{movie_id}", response_model=dict)
 def get_movie(movie_id: int):
-    """Get a single movie by ID"""
+    """
+    Get a single movie by ID with full details
+    
+    Returns movie details including cast (actors), director, genres, and reviews
+    """
     try:
         logger.info(f"Fetching movie with id={movie_id}")
         
         query = """
-            SELECT m.id, m.title, d.name as director, m.release_year, 
+            SELECT m.id, m.title, d.name as director, d.id as director_id, m.release_year, 
                    g.name as genre, m.rating, m.description, m.created_at
             FROM movies m
             JOIN directors d ON m.director_id = d.id
@@ -73,8 +109,31 @@ def get_movie(movie_id: int):
             logger.warning(f"Movie not found: id={movie_id}")
             raise HTTPException(status_code=404, detail="Movie not found")
         
-        logger.info(f"Retrieved movie: {movie['title']}")
-        return movie
+        # Get actors/cast for this movie
+        actors_query = """
+            SELECT a.id, a.name, ma.role, a.birth_year
+            FROM actors a
+            JOIN movie_actors ma ON a.id = ma.actor_id
+            WHERE ma.movie_id = %s
+            ORDER BY a.name
+        """
+        actors = db.execute_query(actors_query, (movie_id,))
+        
+        # Get reviews for this movie
+        reviews_query = """
+            SELECT id, reviewer_name, rating, comment, created_at
+            FROM reviews
+            WHERE movie_id = %s
+            ORDER BY created_at DESC
+        """
+        reviews = db.execute_query(reviews_query, (movie_id,))
+        
+        logger.info(f"Retrieved movie: {movie['title']} with {len(actors)} actors and {len(reviews)} reviews")
+        return {
+            **movie,
+            "cast": actors,
+            "reviews": reviews
+        }
         
     except HTTPException:
         raise

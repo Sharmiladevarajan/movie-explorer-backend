@@ -97,6 +97,50 @@ class GenreResponse(BaseModel):
         from_attributes = True
 
 
+class ActorCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    bio: Optional[str] = None
+    birth_year: Optional[int] = Field(None, ge=1800, le=2030)
+
+    @validator('name')
+    def strip_whitespace(cls, v):
+        if v:
+            v = v.strip()
+            if not v:
+                raise ValueError('Name cannot be empty or only whitespace')
+        return v
+
+
+class ActorUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    bio: Optional[str] = None
+    birth_year: Optional[int] = Field(None, ge=1800, le=2030)
+
+    @validator('name')
+    def strip_whitespace(cls, v):
+        if v is not None:
+            v = v.strip()
+            if not v:
+                raise ValueError('Name cannot be empty')
+        return v
+
+
+class ActorResponse(BaseModel):
+    id: int
+    name: str
+    bio: Optional[str]
+    birth_year: Optional[int]
+
+    class Config:
+        from_attributes = True
+
+
+class MovieActorCreate(BaseModel):
+    movie_id: int = Field(..., gt=0)
+    actor_id: int = Field(..., gt=0)
+    role: Optional[str] = Field(None, max_length=255)
+
+
 class ErrorResponse(BaseModel):
     detail: str
     error_type: Optional[str] = None

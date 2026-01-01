@@ -1,5 +1,5 @@
 from pydantic import BaseModel, validator, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -10,6 +10,8 @@ class MovieCreate(BaseModel):
     genre_name: str = Field(..., min_length=1, max_length=100)
     rating: Optional[float] = Field(None, ge=0, le=10)
     description: Optional[str] = None
+    language: Optional[str] = Field(None, max_length=50)
+    cast: Optional[List[dict]] = None  # [{"actor_name": "...", "role": "..."}]
 
     @validator('title', 'director_name', 'genre_name')
     def strip_whitespace(cls, v):
@@ -27,6 +29,8 @@ class MovieUpdate(BaseModel):
     genre_name: Optional[str] = Field(None, min_length=1, max_length=100)
     rating: Optional[float] = Field(None, ge=0, le=10)
     description: Optional[str] = None
+    language: Optional[str] = Field(None, max_length=50)
+    cast: Optional[List[dict]] = None
 
     @validator('title', 'director_name', 'genre_name')
     def strip_whitespace(cls, v):

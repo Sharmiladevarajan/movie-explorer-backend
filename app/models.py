@@ -11,6 +11,7 @@ class MovieCreate(BaseModel):
     rating: Optional[float] = Field(None, ge=0, le=10)
     description: Optional[str] = None
     language: Optional[str] = Field(None, max_length=50)
+    image_url: Optional[str] = Field(None, max_length=500)
     cast: Optional[List[dict]] = None  # [{"actor_name": "...", "role": "..."}]
 
     @validator('title', 'director_name', 'genre_name')
@@ -30,6 +31,7 @@ class MovieUpdate(BaseModel):
     rating: Optional[float] = Field(None, ge=0, le=10)
     description: Optional[str] = None
     language: Optional[str] = Field(None, max_length=50)
+    image_url: Optional[str] = Field(None, max_length=500)
     cast: Optional[List[dict]] = None
 
     @validator('title', 'director_name', 'genre_name')
@@ -49,6 +51,8 @@ class MovieResponse(BaseModel):
     genre: str
     rating: Optional[float]
     description: Optional[str]
+    language: Optional[str]
+    image_url: Optional[str]
     created_at: datetime
 
     class Config:

@@ -56,7 +56,7 @@ def get_director(director_id: int):
         # Get director's movies
         movies_query = """
             SELECT m.id, m.title, g.name as genre, m.release_year, 
-                   m.rating, m.description
+                   m.rating, m.description, m.language, m.image_url
             FROM movies m
             JOIN genres g ON m.genre_id = g.id
             WHERE m.director_id = %s

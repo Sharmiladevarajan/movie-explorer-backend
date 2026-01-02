@@ -84,7 +84,8 @@ def get_actor(actor_id: int):
         # Get actor's movies
         movies_query = """
             SELECT m.id, m.title, d.name as director, m.release_year, 
-                   g.name as genre, m.rating, m.description, ma.role
+                   g.name as genre, m.rating, m.description, m.language, 
+                   m.image_url, ma.role
             FROM movies m
             JOIN directors d ON m.director_id = d.id
             JOIN genres g ON m.genre_id = g.id

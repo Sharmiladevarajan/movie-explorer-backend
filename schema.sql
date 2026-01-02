@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS movies (
     release_year INTEGER NOT NULL,
     rating DECIMAL(3, 1) CHECK (rating >= 0 AND rating <= 10),
     description TEXT,
+    image_url TEXT
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

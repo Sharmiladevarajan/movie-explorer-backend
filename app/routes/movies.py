@@ -34,7 +34,7 @@ def get_movies(
         # Build dynamic query with filters
         base_query = """
             SELECT DISTINCT m.id, m.title, d.name as director, m.release_year, 
-                   g.name as genre, m.rating, m.description, m.language, m.created_at
+                   g.name as genre, m.rating, m.description, m.language, m.image_url, m.created_at
             FROM movies m
             JOIN directors d ON m.director_id = d.id
             JOIN genres g ON m.genre_id = g.id
@@ -97,7 +97,7 @@ def get_movie(movie_id: int):
         
         query = """
             SELECT m.id, m.title, d.name as director, d.id as director_id, m.release_year, 
-                   g.name as genre, m.rating, m.description, m.language, m.created_at
+                   g.name as genre, m.rating, m.description, m.language, m.image_url, m.created_at
             FROM movies m
             JOIN directors d ON m.director_id = d.id
             JOIN genres g ON m.genre_id = g.id
@@ -156,8 +156,8 @@ def create_movie(movie: MovieCreate):
         genre_id = db.get_or_create("genres", "name", movie.genre_name)
         
         query = """
-            INSERT INTO movies (title, director_id, genre_id, release_year, rating, description, language)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO movies (title, director_id, genre_id, release_year, rating, description, language, image_url)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """
         result = db.execute_insert(query, (
@@ -167,7 +167,8 @@ def create_movie(movie: MovieCreate):
             movie.release_year,
             movie.rating,
             movie.description,
-            movie.language or 'English'
+            movie.language or 'English',
+            movie.image_url
         ))
         
         movie_id = result['id']
@@ -252,6 +253,10 @@ def update_movie(movie_id: int, movie: MovieUpdate):
         if movie.language is not None:
             update_fields.append("language = %s")
             values.append(movie.language)
+        
+        if movie.image_url is not None:
+            update_fields.append("image_url = %s")
+            values.append(movie.image_url)
         
         if not update_fields:
             logger.info(f"No fields to update for movie: id={movie_id}")
@@ -403,7 +408,8 @@ def get_movies_grouped_by_genre(
         for genre in genres_data:
             movies_query = """
                 SELECT m.id, m.title, d.name as director, m.release_year, 
-                       g.name as genre, m.rating, m.description, m.created_at
+                       g.name as genre, m.rating, m.description, m.language, 
+                       m.image_url, m.created_at
                 FROM movies m
                 JOIN directors d ON m.director_id = d.id
                 JOIN genres g ON m.genre_id = g.id
@@ -448,7 +454,8 @@ def get_movies_by_genre_paginated(
         
         query = """
             SELECT m.id, m.title, d.name as director, m.release_year, 
-                   g.name as genre, m.rating, m.description, m.created_at
+                   g.name as genre, m.rating, m.description, m.language, 
+                   m.image_url, m.created_at
             FROM movies m
             JOIN directors d ON m.director_id = d.id
             JOIN genres g ON m.genre_id = g.id

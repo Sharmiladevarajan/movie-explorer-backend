@@ -28,7 +28,7 @@ def get_actors(
         if genre:
             # Filter actors by genre
             query = """
-                SELECT DISTINCT a.id, a.name, a.bio, a.birth_year, a.created_at
+                SELECT DISTINCT a.id, a.name, a.bio, a.birth_year, a.image_url, a.created_at
                 FROM actors a
                 JOIN movie_actors ma ON a.id = ma.actor_id
                 JOIN movies m ON ma.movie_id = m.id
@@ -41,7 +41,7 @@ def get_actors(
             actors = db.execute_query(query, (genre, limit, offset))
         else:
             query = """
-                SELECT id, name, bio, birth_year, created_at
+                SELECT id, name, bio, birth_year, image_url, created_at
                 FROM actors
                 ORDER BY name
                 LIMIT %s OFFSET %s
@@ -71,7 +71,7 @@ def get_actor(actor_id: int):
         
         # Get actor details
         actor_query = """
-            SELECT id, name, bio, birth_year, created_at
+            SELECT id, name, bio, birth_year, image_url, created_at
             FROM actors
             WHERE id = %s
         """

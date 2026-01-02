@@ -10,72 +10,107 @@ router = APIRouter(prefix="/api/movies", tags=["movies"])
 
 @router.get("", response_model=dict)
 def get_movies(
-    limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    limit_per_genre: int = Query(10, ge=1, le=50, description="Movies per genre"),
     genre: Optional[str] = None,
     director: Optional[str] = None,
     actor: Optional[str] = None,
     year: Optional[int] = None
 ):
     """
-    Get all movies with optional filters
+    Get movies grouped by genres for Netflix-style horizontal scrolling
     
     Query Parameters:
-    - limit: Maximum number of movies to return
-    - offset: Number of movies to skip (pagination)
-    - genre: Filter by genre name
+    - limit_per_genre: Maximum number of movies per genre
+    - genre: Filter by specific genre name
     - director: Filter by director name
     - actor: Filter by actor name
     - year: Filter by release year
     """
     try:
-        logger.info(f"Fetching movies: limit={limit}, offset={offset}, genre={genre}, director={director}, actor={actor}, year={year}")
+        logger.info(f"Fetching movies grouped by genre: limit_per_genre={limit_per_genre}, genre={genre}, director={director}, actor={actor}, year={year}")
         
-        # Build dynamic query with filters
-        base_query = """
-            SELECT DISTINCT m.id, m.title, d.name as director, m.release_year, 
-                   g.name as genre, m.rating, m.description, m.language, m.image_url, m.created_at
-            FROM movies m
-            JOIN directors d ON m.director_id = d.id
-            JOIN genres g ON m.genre_id = g.id
-        """
+        # Build filter conditions
+        filter_conditions = []
+        filter_params = []
         
-        conditions = []
-        params = []
-        
-        # Add actor join if filtering by actor
-        if actor:
-            base_query += """
-                JOIN movie_actors ma ON m.id = ma.movie_id
-                JOIN actors a ON ma.actor_id = a.id
-            """
-            conditions.append("a.name ILIKE %s")
-            params.append(actor)
-        
-        # Add filter conditions
         if genre:
-            conditions.append("g.name ILIKE %s")
-            params.append(genre)
+            filter_conditions.append("g.name ILIKE %s")
+            filter_params.append(f"%{genre}%")
         
         if director:
-            conditions.append("d.name ILIKE %s")
-            params.append(director)
+            filter_conditions.append("d.name ILIKE %s")
+            filter_params.append(f"%{director}%")
         
         if year:
-            conditions.append("m.release_year = %s")
-            params.append(year)
+            filter_conditions.append("m.release_year = %s")
+            filter_params.append(year)
         
-        # Combine query
-        if conditions:
-            base_query += " WHERE " + " AND ".join(conditions)
+        if actor:
+            filter_conditions.append("EXISTS (SELECT 1 FROM movie_actors ma JOIN actors a ON ma.actor_id = a.id WHERE ma.movie_id = m.id AND a.name ILIKE %s)")
+            filter_params.append(f"%{actor}%")
         
-        base_query += " ORDER BY m.created_at DESC LIMIT %s OFFSET %s"
-        params.extend([limit, offset])
+        # Get genres with movie counts
+        genre_filter = ""
+        if filter_conditions:
+            genre_filter = "WHERE " + " AND ".join(filter_conditions)
         
-        movies = db.execute_query(base_query, tuple(params))
+        genre_query = f"""
+            SELECT g.id, g.name, g.description, COUNT(DISTINCT m.id) as movie_count
+            FROM genres g
+            LEFT JOIN movies m ON m.genre_id = g.id
+            LEFT JOIN directors d ON m.director_id = d.id
+            {genre_filter}
+            GROUP BY g.id, g.name, g.description
+            HAVING COUNT(DISTINCT m.id) > 0
+            ORDER BY COUNT(DISTINCT m.id) DESC, g.name
+        """
         
-        logger.info(f"Retrieved {len(movies)} movies")
-        return {"movies": movies, "count": len(movies)}
+        genres_data = db.execute_query(genre_query, tuple(filter_params))
+        
+        # For each genre, get movies
+        result = []
+        for genre_info in genres_data:
+            movies_query = """
+                SELECT m.id, m.title, d.name as director, m.release_year, 
+                       g.name as genre, m.rating, m.description, m.language, 
+                       m.image_url, m.created_at
+                FROM movies m
+                JOIN directors d ON m.director_id = d.id
+                JOIN genres g ON m.genre_id = g.id
+                WHERE g.id = %s
+            """
+            
+            movie_params = [genre_info['id']]
+            
+            # Apply additional filters to movies query
+            if director:
+                movies_query += " AND d.name ILIKE %s"
+                movie_params.append(f"%{director}%")
+            
+            if year:
+                movies_query += " AND m.release_year = %s"
+                movie_params.append(year)
+            
+            if actor:
+                movies_query += " AND EXISTS (SELECT 1 FROM movie_actors ma JOIN actors a ON ma.actor_id = a.id WHERE ma.movie_id = m.id AND a.name ILIKE %s)"
+                movie_params.append(f"%{actor}%")
+            
+            movies_query += " ORDER BY m.rating DESC NULLS LAST, m.created_at DESC LIMIT %s"
+            movie_params.append(limit_per_genre)
+            
+            movies = db.execute_query(movies_query, tuple(movie_params))
+            
+            if movies:  # Only include genres that have movies after filtering
+                result.append({
+                    "genre_id": genre_info['id'],
+                    "genre_name": genre_info['name'],
+                    "genre_description": genre_info['description'],
+                    "movie_count": len(movies),
+                    "movies": movies
+                })
+        
+        logger.info(f"Retrieved {len(result)} genres with movies")
+        return {"categories": result, "total_categories": len(result)}
         
     except psycopg2.Error as e:
         logger.error(f"Database error in get_movies: {str(e)}")
@@ -364,78 +399,7 @@ def search_movies(search_term: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/by-genre/grouped", response_model=dict)
-def get_movies_grouped_by_genre(
-    limit_per_genre: int = Query(10, ge=1, le=50, description="Movies per genre"),
-    genres: Optional[str] = Query(None, description="Comma-separated genre names")
-):
-    """
-    Get movies grouped by genre for Netflix-style horizontal scrolling
-    
-    Returns movies organized by genre categories for optimal UI rendering.
-    Perfect for horizontal scroll sections.
-    """
-    try:
-        logger.info(f"Fetching movies grouped by genre: limit={limit_per_genre}, genres={genres}")
-        
-        # Get target genres
-        if genres:
-            genre_list = [g.strip() for g in genres.split(',')]
-            genre_filter = "WHERE g.name = ANY(%s)"
-            genre_params = (genre_list,)
-        else:
-            genre_filter = ""
-            genre_params = ()
-        
-        # First, get all genres with movie counts
-        genre_query = f"""
-            SELECT g.id, g.name, g.description, COUNT(DISTINCT m.id) as movie_count
-            FROM genres g
-            LEFT JOIN movies m ON m.genre_id = g.id
-            {genre_filter}
-            GROUP BY g.id, g.name, g.description
-            HAVING COUNT(DISTINCT m.id) > 0
-            ORDER BY COUNT(DISTINCT m.id) DESC, g.name
-        """
-        
-        if genre_params:
-            genres_data = db.execute_query(genre_query, genre_params)
-        else:
-            genres_data = db.execute_query(genre_query)
-        
-        # For each genre, get movies
-        result = []
-        for genre in genres_data:
-            movies_query = """
-                SELECT m.id, m.title, d.name as director, m.release_year, 
-                       g.name as genre, m.rating, m.description, m.language, 
-                       m.image_url, m.created_at
-                FROM movies m
-                JOIN directors d ON m.director_id = d.id
-                JOIN genres g ON m.genre_id = g.id
-                WHERE g.id = %s
-                ORDER BY m.rating DESC NULLS LAST, m.created_at DESC
-                LIMIT %s
-            """
-            movies = db.execute_query(movies_query, (genre['id'], limit_per_genre))
-            
-            result.append({
-                "genre_id": genre['id'],
-                "genre_name": genre['name'],
-                "genre_description": genre['description'],
-                "movie_count": genre['movie_count'],
-                "movies": movies
-            })
-        
-        logger.info(f"Retrieved {len(result)} genres with movies")
-        return {"categories": result, "total_categories": len(result)}
-        
-    except psycopg2.Error as e:
-        logger.error(f"Database error in get_movies_grouped_by_genre: {str(e)}")
-        raise HTTPException(status_code=500, detail="Database error occurred")
-    except Exception as e:
-        logger.error(f"Unexpected error in get_movies_grouped_by_genre: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+
 
 
 @router.get("/genre/{genre_name}", response_model=dict)

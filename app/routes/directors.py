@@ -14,7 +14,7 @@ def get_directors():
         logger.info("Fetching all directors")
         
         query = """
-            SELECT id, name, bio, birth_year, created_at
+            SELECT id, name, bio, birth_year, image_url, created_at
             FROM directors
             ORDER BY name
         """
@@ -43,7 +43,7 @@ def get_director(director_id: int):
         
         # Get director details
         director_query = """
-            SELECT id, name, bio, birth_year, created_at
+            SELECT id, name, bio, birth_year, image_url, created_at
             FROM directors
             WHERE id = %s
         """

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.database import db_pool
 from app.utils.logger import logger
-from app.routes import movies, reviews, directors, genres
+from app.routes import movies, reviews, directors, genres, actors
 
 
 @asynccontextmanager
@@ -32,6 +32,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.API_TITLE,
     version=settings.API_VERSION,
+    description="Production-ready FastAPI backend for movie exploration platform featuring comprehensive movie, actor, director, and genre management",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
     lifespan=lifespan
 )
 
@@ -61,6 +65,7 @@ app.include_router(movies.router)
 app.include_router(reviews.router)
 app.include_router(directors.router)
 app.include_router(genres.router)
+app.include_router(actors.router)
 
 
 # Health check

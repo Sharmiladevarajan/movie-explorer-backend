@@ -1,107 +1,70 @@
-# Movies API Backend
 
-Production-ready FastAPI backend with proper architecture, connection pooling, logging, and error handling.
+# Movie Explorer Backend
 
-## Architecture
-
-```
-backend/
-├── app/
-│   ├── __init__.py
-│   ├── main.py              # FastAPI app and startup
-│   ├── config.py            # Configuration settings
-│   ├── database.py          # Connection pool & DB operations
-│   ├── models.py            # Pydantic models
-│   ├── routes/              # API routes
-│   │   ├── movies.py
-│   │   ├── reviews.py
-│   │   ├── directors.py
-│   │   └── genres.py
-│   └── utils/
-│       └── logger.py        # Logging configuration
-├── requirements.txt
-└── .env
-```
+This is the backend for the Movie Explorer app, built with FastAPI and PostgreSQL. It provides a RESTful API for managing movies, actors, directors, genres, and reviews.
 
 ## Features
+- Full CRUD for movies, actors, directors, genres, and reviews
+- Admin endpoints for data management
+- Database migrations and demo/demo data scripts
+- End-to-end tested with pytest
+- Docker and docker-compose support
+- Interactive API docs (Swagger/OpenAPI)
 
-✅ **Connection Pooling** - ThreadedConnectionPool for efficient DB connections  
-✅ **Proper Logging** - Structured logging with timestamps  
-✅ **Error Handling** - Try-catch blocks with proper error responses  
-✅ **SQL Injection Protection** - Parameterized queries throughout  
-✅ **Input Validation** - Pydantic models with Field validators  
-✅ **Modular Structure** - Organized routes and database layer  
-✅ **No Code Duplication** - Common DB operations in database.py  
+## Quick Setup
 
-## Setup
+### Prerequisites
+- Python 3.10+
+- PostgreSQL
 
-1. **Create virtual environment:**
+### 1. Clone & Install
 ```bash
-python -m venv venv
-venv\Scripts\activate
-```
-
-2. **Install dependencies:**
-```bash
+git clone <repo-url>
+cd movie-explorer-backend
 pip install -r requirements.txt
 ```
 
-3. **Configure environment:**
+### 2. Database Setup
+1. Create a PostgreSQL database and user.
+2. Update the DB connection in `app/config.py` or set the `DATABASE_URL` env variable.
+3. Run schema and demo data:
+   ```bash
+   psql -U <user> -d <dbname> -f schema.sql
+   psql -U <user> -d <dbname> -f demo_data.sql
+   ```
+
+### 3. Run the API Server
 ```bash
-copy .env.example .env
-# Edit .env with your database credentials
+uvicorn app.main:app --reload
 ```
 
-4. **Run the server:**
+### 4. API Documentation
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+
+### 5. Run Tests
 ```bash
-# From backend directory
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+pytest tests/test_all_routes.py
 ```
 
-## API Documentation
+### 6. Docker
+```bash
+docker build -t movie-explorer-backend .
+docker run -p 8000:8000 movie-explorer-backend
+# or
+docker-compose up --build
+```
 
-Visit http://localhost:8000/docs for interactive API documentation.
+## Project Structure
+- `app/` - FastAPI app code
+- `app/routes/` - API route modules
+- `app/models.py` - SQLAlchemy models
+- `app/database.py` - Database connection
+- `tests/` - API tests
+- `*.sql` - DB schema and migration scripts
 
-## Endpoints
+## End-to-End Testing
+All API endpoints are tested in `tests/test_all_routes.py`.
 
-### Movies
-- `GET /api/movies` - Get all movies
-- `GET /api/movies/{id}` - Get movie by ID
-- `POST /api/movies` - Create movie
-- `PUT /api/movies/{id}` - Update movie
-- `DELETE /api/movies/{id}` - Delete movie
-- `GET /api/movies/search/{term}` - Search movies
-
-### Reviews
-- `GET /api/movies/{id}/reviews` - Get movie reviews
-- `POST /api/reviews` - Create review
-
-### Directors & Genres
-- `GET /api/directors` - Get all directors
-- `GET /api/genres` - Get all genres
-
-## Database Connection Pool
-
-- Min connections: 2 (configurable via `DB_MIN_CONN`)
-- Max connections: 10 (configurable via `DB_MAX_CONN`)
-- Automatic connection management
-- Connection reuse for performance
-
-## Logging
-
-Logs include:
-- Request information
-- Database operations
-- Errors with stack traces
-- Query execution details
-
-Log level configurable via `LOG_LEVEL` environment variable (DEBUG, INFO, WARNING, ERROR).
-
-## Error Handling
-
-All endpoints have:
-- Try-catch blocks
-- Specific error logging
-- Proper HTTP status codes
-- User-friendly error messages
-- Database error handling
+## License
+MIT

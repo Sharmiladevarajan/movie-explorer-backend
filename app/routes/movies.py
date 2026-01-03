@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from app.models import MovieCreate, MovieUpdate, MovieResponse, ErrorResponse
 from app.database import db
 from app.utils.logger import logger
@@ -10,40 +10,107 @@ router = APIRouter(prefix="/api/movies", tags=["movies"])
 
 @router.get("", response_model=dict)
 def get_movies(
-    limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
-    genre: Optional[str] = None
+    limit_per_genre: int = Query(10, ge=1, le=50, description="Movies per genre"),
+    genre: Optional[str] = None,
+    director: Optional[str] = None,
+    actor: Optional[str] = None,
+    year: Optional[int] = None
 ):
-    """Get all movies with optional genre filter"""
+    """
+    Get movies grouped by genres for Netflix-style horizontal scrolling
+    
+    Query Parameters:
+    - limit_per_genre: Maximum number of movies per genre
+    - genre: Filter by specific genre name
+    - director: Filter by director name
+    - actor: Filter by actor name
+    - year: Filter by release year
+    """
     try:
-        logger.info(f"Fetching movies: limit={limit}, offset={offset}, genre={genre}")
+        logger.info(f"Fetching movies grouped by genre: limit_per_genre={limit_per_genre}, genre={genre}, director={director}, actor={actor}, year={year}")
+        
+        # Build filter conditions
+        filter_conditions = []
+        filter_params = []
         
         if genre:
-            query = """
-                SELECT m.id, m.title, d.name as director, m.release_year, 
-                       g.name as genre, m.rating, m.description, m.created_at
-                FROM movies m
-                JOIN directors d ON m.director_id = d.id
-                JOIN genres g ON m.genre_id = g.id
-                WHERE g.name ILIKE %s
-                ORDER BY m.created_at DESC
-                LIMIT %s OFFSET %s
-            """
-            movies = db.execute_query(query, (genre, limit, offset))
-        else:
-            query = """
-                SELECT m.id, m.title, d.name as director, m.release_year, 
-                       g.name as genre, m.rating, m.description, m.created_at
-                FROM movies m
-                JOIN directors d ON m.director_id = d.id
-                JOIN genres g ON m.genre_id = g.id
-                ORDER BY m.created_at DESC
-                LIMIT %s OFFSET %s
-            """
-            movies = db.execute_query(query, (limit, offset))
+            filter_conditions.append("g.name ILIKE %s")
+            filter_params.append(f"%{genre}%")
         
-        logger.info(f"Retrieved {len(movies)} movies")
-        return {"movies": movies, "count": len(movies)}
+        if director:
+            filter_conditions.append("d.name ILIKE %s")
+            filter_params.append(f"%{director}%")
+        
+        if year:
+            filter_conditions.append("m.release_year = %s")
+            filter_params.append(year)
+        
+        if actor:
+            filter_conditions.append("EXISTS (SELECT 1 FROM movie_actors ma JOIN actors a ON ma.actor_id = a.id WHERE ma.movie_id = m.id AND a.name ILIKE %s)")
+            filter_params.append(f"%{actor}%")
+        
+        # Get genres with movie counts
+        genre_filter = ""
+        if filter_conditions:
+            genre_filter = "WHERE " + " AND ".join(filter_conditions)
+        
+        genre_query = f"""
+            SELECT g.id, g.name, g.description, COUNT(DISTINCT m.id) as movie_count
+            FROM genres g
+            LEFT JOIN movies m ON m.genre_id = g.id
+            LEFT JOIN directors d ON m.director_id = d.id
+            {genre_filter}
+            GROUP BY g.id, g.name, g.description
+            HAVING COUNT(DISTINCT m.id) > 0
+            ORDER BY COUNT(DISTINCT m.id) DESC, g.name
+        """
+        
+        genres_data = db.execute_query(genre_query, tuple(filter_params))
+        
+        # For each genre, get movies
+        result = []
+        for genre_info in genres_data:
+            movies_query = """
+                SELECT m.id, m.title, d.name as director, m.release_year, 
+                       g.name as genre, m.rating, m.description, m.language, 
+                       m.image_url, m.created_at
+                FROM movies m
+                JOIN directors d ON m.director_id = d.id
+                JOIN genres g ON m.genre_id = g.id
+                WHERE g.id = %s
+            """
+            
+            movie_params = [genre_info['id']]
+            
+            # Apply additional filters to movies query
+            if director:
+                movies_query += " AND d.name ILIKE %s"
+                movie_params.append(f"%{director}%")
+            
+            if year:
+                movies_query += " AND m.release_year = %s"
+                movie_params.append(year)
+            
+            if actor:
+                movies_query += " AND EXISTS (SELECT 1 FROM movie_actors ma JOIN actors a ON ma.actor_id = a.id WHERE ma.movie_id = m.id AND a.name ILIKE %s)"
+                movie_params.append(f"%{actor}%")
+            
+            movies_query += " ORDER BY m.rating DESC NULLS LAST, m.created_at DESC LIMIT %s"
+            movie_params.append(limit_per_genre)
+            
+            movies = db.execute_query(movies_query, tuple(movie_params))
+            
+            if movies:  # Only include genres that have movies after filtering
+                result.append({
+                    "genre_id": genre_info['id'],
+                    "genre_name": genre_info['name'],
+                    "genre_description": genre_info['description'],
+                    "movie_count": len(movies),
+                    "movies": movies
+                })
+        
+        logger.info(f"Retrieved {len(result)} genres with movies")
+        return {"categories": result, "total_categories": len(result)}
         
     except psycopg2.Error as e:
         logger.error(f"Database error in get_movies: {str(e)}")
@@ -55,13 +122,17 @@ def get_movies(
 
 @router.get("/{movie_id}", response_model=dict)
 def get_movie(movie_id: int):
-    """Get a single movie by ID"""
+    """
+    Get a single movie by ID with full details
+    
+    Returns movie details including cast (actors), director, genres, and reviews
+    """
     try:
         logger.info(f"Fetching movie with id={movie_id}")
         
         query = """
-            SELECT m.id, m.title, d.name as director, m.release_year, 
-                   g.name as genre, m.rating, m.description, m.created_at
+            SELECT m.id, m.title, d.name as director, d.id as director_id, m.release_year, 
+                   g.name as genre, m.rating, m.description, m.language, m.image_url, m.created_at
             FROM movies m
             JOIN directors d ON m.director_id = d.id
             JOIN genres g ON m.genre_id = g.id
@@ -73,8 +144,31 @@ def get_movie(movie_id: int):
             logger.warning(f"Movie not found: id={movie_id}")
             raise HTTPException(status_code=404, detail="Movie not found")
         
-        logger.info(f"Retrieved movie: {movie['title']}")
-        return movie
+        # Get actors/cast for this movie
+        actors_query = """
+            SELECT a.id, a.name, ma.role, a.birth_year
+            FROM actors a
+            JOIN movie_actors ma ON a.id = ma.actor_id
+            WHERE ma.movie_id = %s
+            ORDER BY a.name
+        """
+        actors = db.execute_query(actors_query, (movie_id,))
+        
+        # Get reviews for this movie
+        reviews_query = """
+            SELECT id, reviewer_name, rating, comment, created_at
+            FROM reviews
+            WHERE movie_id = %s
+            ORDER BY created_at DESC
+        """
+        reviews = db.execute_query(reviews_query, (movie_id,))
+        
+        logger.info(f"Retrieved movie: {movie['title']} with {len(actors)} actors and {len(reviews)} reviews")
+        return {
+            **movie,
+            "cast": actors,
+            "reviews": reviews
+        }
         
     except HTTPException:
         raise
@@ -97,8 +191,8 @@ def create_movie(movie: MovieCreate):
         genre_id = db.get_or_create("genres", "name", movie.genre_name)
         
         query = """
-            INSERT INTO movies (title, director_id, genre_id, release_year, rating, description)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO movies (title, director_id, genre_id, release_year, rating, description, language, image_url)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """
         result = db.execute_insert(query, (
@@ -107,11 +201,29 @@ def create_movie(movie: MovieCreate):
             genre_id,
             movie.release_year,
             movie.rating,
-            movie.description
+            movie.description,
+            movie.language or 'English',
+            movie.image_url
         ))
         
         movie_id = result['id']
         logger.info(f"Movie created successfully: id={movie_id}")
+        
+        # Add cast if provided
+        if movie.cast:
+            for cast_member in movie.cast:
+                actor_name = cast_member.get('actor_name')
+                role = cast_member.get('role', '')
+                if actor_name:
+                    # Get or create actor
+                    actor_id = db.get_or_create("actors", "name", actor_name)
+                    # Link to movie
+                    cast_query = """
+                        INSERT INTO movie_actors (movie_id, actor_id, role)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (movie_id, actor_id) DO UPDATE SET role = EXCLUDED.role
+                    """
+                    db.execute_insert(cast_query, (movie_id, actor_id, role))
         
         # Return the created movie
         return get_movie(movie_id)
@@ -173,6 +285,14 @@ def update_movie(movie_id: int, movie: MovieUpdate):
             update_fields.append("description = %s")
             values.append(movie.description)
         
+        if movie.language is not None:
+            update_fields.append("language = %s")
+            values.append(movie.language)
+        
+        if movie.image_url is not None:
+            update_fields.append("image_url = %s")
+            values.append(movie.image_url)
+        
         if not update_fields:
             logger.info(f"No fields to update for movie: id={movie_id}")
             return get_movie(movie_id)
@@ -185,6 +305,23 @@ def update_movie(movie_id: int, movie: MovieUpdate):
             RETURNING id
         """
         db.execute_update(query, tuple(values))
+        
+        # Update cast if provided
+        if movie.cast is not None:
+            # Remove existing cast
+            db.execute_query("DELETE FROM movie_actors WHERE movie_id = %s", (movie_id,), fetch_all=False)
+            # Add new cast
+            for cast_member in movie.cast:
+                actor_name = cast_member.get('actor_name')
+                role = cast_member.get('role', '')
+                if actor_name:
+                    actor_id = db.get_or_create("actors", "name", actor_name)
+                    cast_query = """
+                        INSERT INTO movie_actors (movie_id, actor_id, role)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (movie_id, actor_id) DO UPDATE SET role = EXCLUDED.role
+                    """
+                    db.execute_insert(cast_query, (movie_id, actor_id, role))
         
         logger.info(f"Movie updated successfully: id={movie_id}")
         return get_movie(movie_id)
@@ -260,3 +397,60 @@ def search_movies(search_term: str):
     except Exception as e:
         logger.error(f"Unexpected error in search_movies: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+
+
+
+@router.get("/genre/{genre_name}", response_model=dict)
+def get_movies_by_genre_paginated(
+    genre_name: str,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0)
+):
+    """
+    Get paginated movies for a specific genre
+    
+    Optimized for infinite scroll - returns movies in batches
+    """
+    try:
+        logger.info(f"Fetching movies for genre '{genre_name}': limit={limit}, offset={offset}")
+        
+        query = """
+            SELECT m.id, m.title, d.name as director, m.release_year, 
+                   g.name as genre, m.rating, m.description, m.language, 
+                   m.image_url, m.created_at
+            FROM movies m
+            JOIN directors d ON m.director_id = d.id
+            JOIN genres g ON m.genre_id = g.id
+            WHERE g.name ILIKE %s
+            ORDER BY m.rating DESC NULLS LAST, m.created_at DESC
+            LIMIT %s OFFSET %s
+        """
+        movies = db.execute_query(query, (genre_name, limit, offset))
+        
+        # Get total count for this genre
+        count_query = """
+            SELECT COUNT(*) as total
+            FROM movies m
+            JOIN genres g ON m.genre_id = g.id
+            WHERE g.name ILIKE %s
+        """
+        count_result = db.execute_query(count_query, (genre_name,), fetch_one=True)
+        total = count_result['total'] if count_result else 0
+        
+        logger.info(f"Retrieved {len(movies)} movies for genre '{genre_name}'")
+        return {
+            "movies": movies,
+            "count": len(movies),
+            "total": total,
+            "has_more": (offset + len(movies)) < total
+        }
+        
+    except psycopg2.Error as e:
+        logger.error(f"Database error in get_movies_by_genre_paginated: {str(e)}")
+        raise HTTPException(status_code=500, detail="Database error occurred")
+    except Exception as e:
+        logger.error(f"Unexpected error in get_movies_by_genre_paginated: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+

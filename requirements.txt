@@ -3,3 +3,10 @@ uvicorn
 psycopg2-binary
 pydantic
 python-dotenv
+flake8
+black
+mypy
+pytest
+pytest-cov
+pytest-asyncio
+httpx

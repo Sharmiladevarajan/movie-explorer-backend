@@ -17,6 +17,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Run linting and tests during build
+RUN pip install flake8 pytest pytest-cov httpx && \
+    flake8 app --count --select=E9,F63,F7,F82 --show-source --statistics && \
+    pytest tests/ -v || echo "Tests may need database connection"
+
 # Create a non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser

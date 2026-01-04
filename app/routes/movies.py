@@ -376,7 +376,8 @@ def search_movies(search_term: str):
         
         query = """
             SELECT m.id, m.title, d.name as director, m.release_year, 
-                   g.name as genre, m.rating, m.description, m.created_at
+                   g.name as genre, m.rating, m.description, m.language, 
+                   m.image_url, m.created_at
             FROM movies m
             JOIN directors d ON m.director_id = d.id
             JOIN genres g ON m.genre_id = g.id

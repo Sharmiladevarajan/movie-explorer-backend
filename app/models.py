@@ -74,6 +74,11 @@ class ReviewCreate(BaseModel):
         return v
 
 
+class ReviewUpdate(BaseModel):
+    rating: Optional[float] = Field(None, ge=0, le=10)
+    comment: Optional[str] = None
+
+
 class ReviewResponse(BaseModel):
     id: int
     movie_id: int

@@ -18,7 +18,7 @@ class Settings:
     # API
     API_TITLE: str = "Movies API"
     API_VERSION: str = "1.0.0"
-    CORS_ORIGINS: list = ["http://localhost:3000","https://movie-explorer-frontend-ten.vercel.app"]
+    CORS_ORIGINS: list = ["http://localhost:3000","https://movie-explorer-frontend-ten.vercel.app","https://movie-explorer-frontend-0oks.onrender.com"]
     
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
